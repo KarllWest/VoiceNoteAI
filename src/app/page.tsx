@@ -5,19 +5,26 @@ import { prisma } from "@/lib/prisma";
 import { hasActiveSubscription } from "@/lib/stripe";
 
 export default async function HomePage() {
-  const { userId } = await auth();
-  const clerkUser = userId ? await currentUser() : null;
-
+  let userId: string | null = null;
+  let clerkUser = null;
   let freeUsed = 0;
   let hasPro = false;
 
-  if (userId) {
-    const dbUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { freeUsed: true, id: true },
-    });
-    freeUsed = dbUser?.freeUsed ?? 0;
-    if (dbUser) hasPro = await hasActiveSubscription(dbUser.id);
+  try {
+    const authResult = await auth();
+    userId = authResult.userId;
+    clerkUser = userId ? await currentUser() : null;
+
+    if (userId) {
+      const dbUser = await prisma.user.findUnique({
+        where: { clerkId: userId },
+        select: { freeUsed: true, id: true },
+      });
+      freeUsed = dbUser?.freeUsed ?? 0;
+      if (dbUser) hasPro = await hasActiveSubscription(dbUser.id);
+    }
+  } catch (err) {
+    console.error("[HomePage] render error:", err);
   }
 
   return (
