@@ -4,6 +4,8 @@ import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
 import { hasActiveSubscription } from "@/lib/stripe";
 
+export const maxDuration = 60; // allow up to 60s for large files
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: NextRequest) {

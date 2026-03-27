@@ -27,10 +27,13 @@ export async function hasActiveSubscription(userId: string): Promise<boolean> {
   const sub = await prisma.subscription.findUnique({ where: { userId } });
   if (!sub) return false;
 
-  const isActive =
-    sub.status === "active" &&
-    sub.stripeCurrentPeriodEnd != null &&
-    sub.stripeCurrentPeriodEnd > new Date();
+  if (sub.status !== "active") return false;
 
-  return isActive;
+  // If period end is set, check it hasn't expired
+  if (sub.stripeCurrentPeriodEnd != null) {
+    return sub.stripeCurrentPeriodEnd > new Date();
+  }
+
+  // Period end not set yet (webhook race) — trust status field
+  return true;
 }

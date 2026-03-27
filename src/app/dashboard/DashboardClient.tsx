@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { Mic, Send, Loader2, AudioWaveform, MessageSquare, Plus, ChevronRight } from "lucide-react";
+import { Mic, Send, Loader2, AudioWaveform, MessageSquare, Plus, ChevronRight, Upload, Square, Download, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -40,16 +41,20 @@ export default function DashboardClient({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isChatRecording, setIsChatRecording] = useState(false);
+  const chatRecorderRef = useRef<MediaRecorder | null>(null);
+  const chatChunksRef = useRef<Blob[]>([]);
   const [banner, setBanner] = useState(showSuccessBanner);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedRecording = recordings.find((r) => r.id === selectedId) ?? null;
 
   useEffect(() => {
     if (selectedRecording) {
-      setChatMessages(selectedRecording.chatHistory as unknown as ChatMessage[]);
+      setChatMessages((selectedRecording.chatHistory as unknown as ChatMessage[]) || []);
     } else {
       setChatMessages([]);
     }
@@ -66,12 +71,18 @@ export default function DashboardClient({
     }
   }, [banner]);
 
+  const getSupportedMimeType = () => {
+    const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg", "audio/mp4"];
+    return types.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      const mimeType = getSupportedMimeType();
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -81,14 +92,16 @@ export default function DashboardClient({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        await handleTranscribe(blob);
+        const type = mediaRecorder.mimeType || "audio/webm";
+        const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "mp4" : "webm";
+        const blob = new Blob(chunksRef.current, { type });
+        await handleTranscribe(blob, `recording.${ext}`);
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(250);
       setIsRecording(true);
     } catch {
-      alert("Microphone access denied");
+      alert("Мікрофон недоступний. Дозволь доступ у браузері.");
     }
   };
 
@@ -100,10 +113,18 @@ export default function DashboardClient({
     }
   };
 
-  const handleTranscribe = async (blob: Blob) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessing(true);
+    await handleTranscribe(file, file.name);
+    e.target.value = "";
+  };
+
+  const handleTranscribe = async (blob: Blob | File, filename: string) => {
     try {
       const formData = new FormData();
-      formData.append("audio", blob, "recording.webm");
+      formData.append("audio", blob, filename);
 
       const res = await fetch("/api/transcribe", {
         method: "POST",
@@ -123,6 +144,58 @@ export default function DashboardClient({
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const startChatRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getSupportedMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      chatRecorderRef.current = rec;
+      chatChunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chatChunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const type = rec.mimeType || "audio/webm";
+        const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "mp4" : "webm";
+        const blob = new Blob(chatChunksRef.current, { type });
+        // Transcribe and put result into chat input
+        const formData = new FormData();
+        formData.append("audio", blob, `chat.${ext}`);
+        const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.transcript) setChatInput(data.transcript);
+      };
+      rec.start(250);
+      setIsChatRecording(true);
+    } catch { alert("Мікрофон недоступний"); }
+  };
+
+  const stopChatRecording = () => {
+    if (chatRecorderRef.current && isChatRecording) {
+      chatRecorderRef.current.stop();
+      setIsChatRecording(false);
+    }
+  };
+
+  const downloadAsText = () => {
+    if (!selectedRecording) return;
+    const lines: string[] = [];
+    lines.push(`TRANSCRIPT\n${"─".repeat(40)}`);
+    lines.push(selectedRecording.transcript);
+    if (chatMessages.length > 0) {
+      lines.push(`\nCHAT\n${"─".repeat(40)}`);
+      chatMessages.forEach((m) => {
+        lines.push(`[${m.role === "user" ? "You" : "AI"}]: ${m.content}`);
+      });
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedRecording.title ?? "recording"}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const sendMessage = async () => {
@@ -165,7 +238,12 @@ export default function DashboardClient({
             <Mic className="w-5 h-5 text-purple-400" />
             <span className="font-semibold text-sm">VoiceNote AI</span>
           </div>
-          <UserButton />
+          <div className="flex items-center gap-2">
+            <Link href="/" className="text-gray-400 hover:text-white transition-colors" title="На головну">
+              <Home className="w-4 h-4" />
+            </Link>
+            <UserButton />
+          </div>
         </div>
 
         {/* New recording button */}
@@ -188,6 +266,24 @@ export default function DashboardClient({
             ) : (
               <><Plus className="w-4 h-4" /> New Recording</>
             )}
+          </button>
+
+          {/* File upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm,.flac"
+            onChange={handleFileUpload}
+            className="hidden"
+            disabled={isProcessing}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            className="w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-all disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" />
+            Upload audio file
           </button>
         </div>
 
@@ -257,30 +353,40 @@ export default function DashboardClient({
         ) : (
           <>
             {/* Recording info */}
-            <div className="px-6 py-4 border-b border-gray-800 bg-gray-900">
-              <div className="flex items-center gap-3">
-                <MessageSquare className="w-5 h-5 text-purple-400" />
-                <div>
-                  <h2 className="font-semibold">
-                    {selectedRecording.title || "Untitled recording"}
-                  </h2>
-                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                    {selectedRecording.transcript}
-                  </p>
-                </div>
+            <div className="px-6 py-4 border-b border-gray-800 bg-gray-900 flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <MessageSquare className="w-5 h-5 text-purple-400 shrink-0" />
+                <h2 className="font-semibold truncate">
+                  {selectedRecording.title || "Untitled recording"}
+                </h2>
               </div>
+              <button
+                onClick={downloadAsText}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg px-3 py-1.5 transition-colors shrink-0 ml-4"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download .txt
+              </button>
             </div>
 
             {/* Chat messages */}
             <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-              {chatMessages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <MessageSquare className="w-12 h-12 text-gray-700 mb-3" />
-                  <p className="text-gray-500 text-sm max-w-sm">
-                    Ask GPT-4 anything about this recording — get summaries, action
-                    items, insights, translations, and more.
+              {/* Transcript bubble — always shown at top */}
+              <div className="flex justify-start">
+                <div className="max-w-xl rounded-2xl px-4 py-3 text-sm bg-gray-800/60 border border-gray-700 text-gray-300">
+                  <p className="text-xs text-purple-400 font-medium mb-1 flex items-center gap-1">
+                    <AudioWaveform className="w-3 h-3" /> Transcript
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                  <p className="whitespace-pre-wrap">{selectedRecording.transcript}</p>
+                </div>
+              </div>
+
+              {chatMessages.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-gray-500 text-sm">
+                    Запитай GPT-4 про цей запис
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 justify-center">
                     {["Summarize this", "Key action items?", "What topics are discussed?"].map(
                       (suggestion) => (
                         <button
@@ -329,15 +435,33 @@ export default function DashboardClient({
 
             {/* Input */}
             <div className="px-6 py-4 border-t border-gray-800">
-              <div className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-4 py-3">
+                {/* Mic button for voice-to-chat */}
+                <button
+                  onClick={isChatRecording ? stopChatRecording : startChatRecording}
+                  className={cn(
+                    "shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                    isChatRecording
+                      ? "bg-red-500 hover:bg-red-600 animate-pulse"
+                      : "bg-gray-700 hover:bg-gray-600"
+                  )}
+                  title={isChatRecording ? "Зупинити" : "Говорити"}
+                >
+                  {isChatRecording
+                    ? <Square className="w-3.5 h-3.5 text-white" fill="white" />
+                    : <Mic className="w-3.5 h-3.5 text-gray-300" />
+                  }
+                </button>
+
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                  placeholder="Ask about this recording..."
+                  placeholder={isChatRecording ? "Говори... натисни ■ щоб зупинити" : "Запитай про цей запис..."}
                   className="flex-1 bg-transparent text-sm outline-none placeholder-gray-500"
                 />
+
                 <Button
                   onClick={sendMessage}
                   disabled={!chatInput.trim() || isChating}
