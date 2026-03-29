@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       },
     ],
     mode: "subscription",
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true`,
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pay?canceled=true`,
     metadata: { userId: dbUser.id },
   });
