@@ -134,7 +134,7 @@ export default function VoiceRecorder({
       }
 
       setTranscript(data.transcript);
-      if (data.recordingId) {
+      if (data.recordingId && hasPro) {
         router.push(`/dashboard?recording=${data.recordingId}`);
       }
     } catch (err) {
