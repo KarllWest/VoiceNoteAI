@@ -9,12 +9,15 @@ const PricingTable = "stripe-pricing-table" as unknown as React.ComponentType<{
   "publishable-key": string;
   "client-reference-id"?: string;
   "customer-email"?: string;
+  "success-url"?: string;
 }>;
 
 interface StripePricingTableProps {
   userId: string;
   email: string;
 }
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
 export default function StripePricingTable({ userId, email }: StripePricingTableProps) {
   return (
@@ -25,6 +28,7 @@ export default function StripePricingTable({ userId, email }: StripePricingTable
         publishable-key={process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!}
         client-reference-id={userId}
         customer-email={email}
+        success-url={`${APP_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`}
       />
     </>
   );
