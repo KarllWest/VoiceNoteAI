@@ -21,15 +21,14 @@ export default async function DashboardPage({
   const clerkUser = await currentUser();
   const params = await searchParams;
 
-  // Get or create DB user
+  // Get or create DB user (upsert by email to avoid unique-email conflicts)
+  const email = clerkUser?.emailAddresses[0]?.emailAddress ?? "";
   let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!dbUser) {
-    dbUser = await prisma.user.create({
-      data: {
-        clerkId: userId,
-        email: clerkUser?.emailAddresses[0]?.emailAddress ?? "",
-        name: clerkUser?.fullName ?? null,
-      },
+    dbUser = await prisma.user.upsert({
+      where: { email },
+      update: { clerkId: userId, name: clerkUser?.fullName ?? undefined },
+      create: { clerkId: userId, email, name: clerkUser?.fullName ?? null },
     });
   }
 

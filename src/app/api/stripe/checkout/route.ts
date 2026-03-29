@@ -11,8 +11,10 @@ export async function POST(req: NextRequest) {
 
   let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!dbUser) {
-    dbUser = await prisma.user.create({
-      data: { clerkId: userId, email },
+    dbUser = await prisma.user.upsert({
+      where: { email },
+      update: { clerkId: userId },
+      create: { clerkId: userId, email },
     });
   }
 

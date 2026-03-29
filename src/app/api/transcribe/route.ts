@@ -52,13 +52,16 @@ export async function POST(req: NextRequest) {
     m.currentUser()
   );
 
+  const userEmail = clerkUser?.emailAddresses[0]?.emailAddress ?? "";
   let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } });
 
   if (!dbUser) {
-    dbUser = await prisma.user.create({
-      data: {
+    dbUser = await prisma.user.upsert({
+      where: { email: userEmail },
+      update: { clerkId: userId, name: clerkUser?.fullName ?? undefined },
+      create: {
         clerkId: userId,
-        email: clerkUser?.emailAddresses[0]?.emailAddress ?? "",
+        email: userEmail,
         name: clerkUser?.fullName ?? null,
       },
     });
