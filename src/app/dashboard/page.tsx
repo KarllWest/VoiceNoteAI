@@ -3,11 +3,17 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { stripe, hasActiveSubscription } from "@/lib/stripe";
 import DashboardClient from "./DashboardClient";
+import PaymentVerification from "./PaymentVerification";
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ recording?: string; success?: string; session_id?: string }>;
+  searchParams: Promise<{
+    recording?: string;
+    success?: string;
+    session_id?: string;
+    attempt?: string;
+  }>;
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
@@ -27,8 +33,8 @@ export default async function DashboardPage({
     });
   }
 
-  // On payment success, provision subscription directly from Stripe so we
-  // don't depend on the webhook arriving before this page renders.
+  // Fast path: if session_id is present, provision subscription directly from
+  // Stripe without waiting for the webhook.
   if (params.success === "true" && params.session_id) {
     try {
       const session = await stripe.checkout.sessions.retrieve(params.session_id);
@@ -67,6 +73,12 @@ export default async function DashboardPage({
   const hasPro = await hasActiveSubscription(dbUser.id);
 
   if (!hasPro) {
+    // If this is a post-payment redirect, show polling UI instead of sending
+    // the user back to /pay — the webhook may just not have arrived yet.
+    if (params.success === "true") {
+      const attempt = parseInt(params.attempt ?? "0", 10);
+      return <PaymentVerification attempt={attempt} />;
+    }
     redirect("/pay");
   }
 
