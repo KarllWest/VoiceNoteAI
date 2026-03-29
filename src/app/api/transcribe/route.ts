@@ -31,7 +31,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Transcribe for free
-    const transcript = await transcribeAudio(audioFile);
+    let transcript: string;
+    try {
+      transcript = await transcribeAudio(audioFile);
+    } catch (err) {
+      console.error("[transcribe] OpenAI error:", err);
+      return NextResponse.json({ error: "Transcription failed. Please try again." }, { status: 500 });
+    }
 
     const response = NextResponse.json({ transcript, recordingId: null });
     response.cookies.set("free_used", "1", {
@@ -69,7 +75,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Transcribe
-  const transcript = await transcribeAudio(audioFile);
+  let transcript: string;
+  try {
+    transcript = await transcribeAudio(audioFile);
+  } catch (err) {
+    console.error("[transcribe] OpenAI error:", err);
+    return NextResponse.json({ error: "Transcription failed. Please try again." }, { status: 500 });
+  }
 
   // Save recording to DB
   const recording = await prisma.recording.create({

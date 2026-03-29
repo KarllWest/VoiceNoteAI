@@ -44,13 +44,18 @@ export async function POST(req: NextRequest) {
     { role: "user", content: message },
   ];
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages,
-    max_tokens: 1000,
-  });
-
-  const assistantMessage = completion.choices[0].message.content ?? "";
+  let assistantMessage: string;
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages,
+      max_tokens: 1000,
+    });
+    assistantMessage = completion.choices[0].message.content ?? "";
+  } catch (err) {
+    console.error("[chat] OpenAI error:", err);
+    return NextResponse.json({ error: "AI response failed. Please try again." }, { status: 500 });
+  }
 
   const updatedHistory: ChatMessage[] = [
     ...history,
